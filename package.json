@@ -1,0 +1,38 @@
+{
+  "name": "broker-server",
+  "version": "0.8.0",
+  "description": "Voidkey broker server",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@nestjs/common": "^11.1.5",
+    "@nestjs/core": "^11.1.5",
+    "@nestjs/platform-express": "^11.1.5",
+    "@types/node": "^24.1.0",
+    "@voidkey/broker-core": "^0.8.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.7",
+    "@nestjs/testing": "^11.1.5",
+    "@types/jest": "^30.0.0",
+    "@types/supertest": "^6.0.3",
+    "jest": "^30.0.5",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2"
+  }
+}

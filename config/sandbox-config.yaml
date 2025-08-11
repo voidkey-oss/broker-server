@@ -1,0 +1,67 @@
+# Sandbox Configuration for Voidkey Broker
+# This configuration is designed to work with the Keycloak instances in the sandbox
+
+# Broker's own IdP configuration for OIDC authentication
+brokerIdp:
+  name: "keycloak-broker"
+  issuer: "http://localhost:8080/realms/broker"
+  audience: "voidkey-broker"
+  jwksUri: "http://localhost:8080/realms/broker/protocol/openid-connect/certs"
+  algorithms: ["RS256"]
+  clientId: "broker-service"
+  clientSecret: "broker-secret-12345"
+  tokenEndpoint: "http://localhost:8080/realms/broker/protocol/openid-connect/token"
+
+# Client IdP configurations - Keycloak client realm
+clientIdps:
+  - name: "keycloak-client"
+    issuer: "http://localhost:8080/realms/client"
+    audience: "voidkey-broker"
+    validateAudience: false  # Disable for testing until Keycloak config is updated
+    jwksUri: "http://localhost:8080/realms/client/protocol/openid-connect/certs"
+    algorithms: ["RS256"]
+
+# Access providers for credential minting
+accessProviders:
+  # MinIO provider for sandbox environment
+  - name: "minio-sandbox"
+    type: "minio-sts"
+    endpoint: "http://localhost:9000"
+    defaultDuration: 3600  # 1 hour default
+    brokerAuth:
+      tokenSource: "broker-oidc"
+      expectedIssuer: "http://localhost:8080/realms/broker"
+      expectedAudience: "voidkey-broker"
+      jwksUri: "http://localhost:8080/realms/broker/protocol/openid-connect/certs"
+
+# Client identities with new key-based configuration
+clientIdentities:
+  # Service account for the voidkey-cli client with new key-based approach
+  - subject: "b8c84bed-a860-4945-9adf-2f094eb9c324"
+    idp: "keycloak-client"
+    keys:
+      # MinIO credentials for general access
+      MINIO_CREDENTIALS:
+        provider: "minio-sandbox"
+        role: "client-policy"
+        duration: 1800  # 30 minutes
+        outputs:
+          MINIO_ACCESS_KEY_ID: "AccessKeyId"
+          MINIO_SECRET_ACCESS_KEY: "SecretAccessKey" 
+          MINIO_SESSION_TOKEN: "SessionToken"
+          MINIO_EXPIRATION: "Expiration"
+          MINIO_ENDPOINT: "Endpoint"
+      
+      # MinIO credentials with admin policy (for testing)
+      MINIO_ADMIN_CREDENTIALS:
+        provider: "minio-sandbox"
+        role: "client-policy"  # Using client-policy for now
+        duration: 900  # 15 minutes
+        outputs:
+          MINIO_ADMIN_ACCESS_KEY: "AccessKeyId"
+          MINIO_ADMIN_SECRET_KEY: "SecretAccessKey"
+          MINIO_ADMIN_SESSION_TOKEN: "SessionToken"
+          MINIO_ADMIN_EXPIRATION: "Expiration"
+
+# Set Keycloak as the default client IdP
+default: "keycloak-client"

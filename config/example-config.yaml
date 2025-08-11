@@ -1,0 +1,136 @@
+# Voidkey Broker Configuration - New Key-Based Architecture
+# This configuration demonstrates the new provider-based key minting system
+
+# Broker's own IdP configuration for proper OIDC authentication
+brokerIdp:
+  name: "broker-keycloak"
+  issuer: "http://localhost:8080/realms/broker"
+  audience: "voidkey-broker"
+  jwksUri: "http://localhost:8080/realms/broker/protocol/openid-connect/certs"
+  algorithms: ["RS256"]
+  # Service account credentials for broker authentication
+  clientId: "broker-service"
+  clientSecret: "broker-secret-12345"
+  tokenEndpoint: "http://localhost:8080/realms/broker/protocol/openid-connect/token"
+
+# Client IdP configurations - IdPs that can authenticate clients to the broker
+clientIdps:
+  # Keycloak client realm for sandbox testing
+  - name: "keycloak-client"
+    issuer: "http://localhost:8080/realms/client"
+    audience: "voidkey-broker"
+    jwksUri: "http://localhost:8080/realms/client/protocol/openid-connect/certs"
+    algorithms: ["RS256"]
+
+  # Example Auth0 provider with specific audience
+  - name: "auth0"
+    issuer: "https://mytenant.us.auth0.com/"
+    audience: "https://mytenant.us.auth0.com/api/v2/"  # Auth0's fixed audience
+    jwksUri: "https://mytenant.us.auth0.com/.well-known/jwks.json"
+    algorithms: ["RS256"]
+
+  # Example GitHub Actions provider - fixed audience we can't control
+  - name: "github-actions"
+    issuer: "https://token.actions.githubusercontent.com"
+    audience: "sts.amazonaws.com"  # GitHub's fixed audience for AWS
+    jwksUri: "https://token.actions.githubusercontent.com/.well-known/jwks"
+    algorithms: ["RS256"]
+
+# Access providers for credential minting
+accessProviders:
+  # MinIO provider for sandbox environment
+  - name: "minio-sandbox"
+    type: "minio-sts"
+    endpoint: "http://localhost:9000"
+    defaultDuration: 3600  # 1 hour default
+    # MinIO role ARN (printed at MinIO startup when OIDC is configured)
+    # roleArn: "arn:minio:iam:::role/broker-role"  # Optional - uncomment if MinIO requires it
+    brokerAuth:
+      tokenSource: "broker-oidc"
+      # Broker OIDC token validation settings - all required
+      expectedIssuer: "http://localhost:8080/realms/broker"
+      expectedAudience: "voidkey-broker"
+      jwksUri: "http://localhost:8080/realms/broker/protocol/openid-connect/certs"
+
+  # AWS provider example for pure OIDC integration
+  - name: "aws-dev"
+    type: "aws-sts"
+    endpoint: "https://sts.amazonaws.com"
+    region: "us-east-1"
+    defaultDuration: 3600
+    # AWS role ARN (created in AWS IAM for OIDC web identity provider)
+    # roleArn: "arn:aws:iam::123456789012:role/VoidkeyBrokerRole"  # Optional - uncomment if AWS requires it
+    brokerAuth:
+      tokenSource: "broker-oidc"
+      # Broker OIDC token validation settings - all required
+      expectedIssuer: "http://localhost:8080/realms/broker"
+      expectedAudience: "voidkey-broker"
+      jwksUri: "http://localhost:8080/realms/broker/protocol/openid-connect/certs"
+
+# Client identities with key-based configuration
+clientIdentities:
+  # Service account from Keycloak client realm (for sandbox testing)
+  - subject: "8a99c8d8-4c28-4d2d-8d07-ec27cced122f"
+    idp: "keycloak-client"
+    keys:
+      # MinIO credentials for general access
+      MINIO_CREDENTIALS:
+        provider: "minio-sandbox"
+        policy: "client-policy"
+        duration: 1800  # 30 minutes
+        outputs:
+          MINIO_ACCESS_KEY_ID: "AccessKeyId"
+          MINIO_SECRET_ACCESS_KEY: "SecretAccessKey" 
+          MINIO_SESSION_TOKEN: "SessionToken"
+          MINIO_EXPIRATION: "Expiration"
+          MINIO_ENDPOINT: "Endpoint"
+      
+      # MinIO credentials with different duration for admin tasks
+      MINIO_ADMIN_CREDENTIALS:
+        provider: "minio-sandbox"
+        policy: "client-policy"  # In real setup, this would be admin-policy
+        duration: 900  # 15 minutes
+        outputs:
+          MINIO_ADMIN_ACCESS_KEY: "AccessKeyId"
+          MINIO_ADMIN_SECRET_KEY: "SecretAccessKey"
+          MINIO_ADMIN_SESSION_TOKEN: "SessionToken"
+          MINIO_ADMIN_EXPIRATION: "Expiration"
+
+  # Example Auth0 identity with AWS credentials
+  - subject: "auth0|507f1f77bcf86cd799439011"
+    idp: "auth0"
+    keys:
+      AWS_DEV_CREDENTIALS:
+        provider: "aws-dev"
+        roleArn: "arn:aws:iam::123456789012:role/VoidkeyDevRole"
+        duration: 3600
+        outputs:
+          AWS_ACCESS_KEY_ID: "AccessKeyId"
+          AWS_SECRET_ACCESS_KEY: "SecretAccessKey"
+          AWS_SESSION_TOKEN: "SessionToken"
+          AWS_EXPIRATION: "Expiration"
+      
+      AWS_READONLY_CREDENTIALS:
+        provider: "aws-dev"
+        roleArn: "arn:aws:iam::123456789012:role/VoidkeyReadOnlyRole"
+        duration: 7200  # 2 hours for read-only
+        outputs:
+          AWS_READONLY_ACCESS_KEY: "AccessKeyId"
+          AWS_READONLY_SECRET_KEY: "SecretAccessKey"
+          AWS_READONLY_SESSION_TOKEN: "SessionToken"
+
+  # Example GitHub Actions identity
+  - subject: "repo:myorg/myrepo:ref:refs/heads/main"
+    idp: "github-actions"
+    keys:
+      AWS_CI_CREDENTIALS:
+        provider: "aws-dev"
+        roleArn: "arn:aws:iam::123456789012:role/VoidkeyCIRole"
+        duration: 1800  # 30 minutes for CI
+        outputs:
+          AWS_ACCESS_KEY_ID: "AccessKeyId"
+          AWS_SECRET_ACCESS_KEY: "SecretAccessKey"
+          AWS_SESSION_TOKEN: "SessionToken"
+
+# Default client IdP
+default: "keycloak-client"

@@ -1,0 +1,122 @@
+name: CI
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: ['*']
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: NPM install
+        run: npm install
+
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run tests
+        run: npm test
+
+  docker-build-test:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Create CI test configuration file
+        run: |
+          mkdir -p config
+          cat > config/ci-test-config.yaml << 'EOF'
+          # CI Test Configuration - minimal setup using hello-world provider for Docker testing
+          brokerIdp:
+            name: "ci-test-broker"
+            issuer: "https://ci-test.example.com/realms/broker"
+            audience: "voidkey-broker"
+            jwksUri: "https://ci-test.example.com/realms/broker/protocol/openid-connect/certs"
+            algorithms: ["RS256"]
+            clientId: "ci-broker-service"
+            clientSecret: "ci-test-secret"
+            tokenEndpoint: "https://ci-test.example.com/realms/broker/protocol/openid-connect/token"
+            
+          clientIdps: []
+          accessProviders: []
+          clientIdentities: []
+          default: "hello-world"
+          EOF
+        
+      - name: Build Docker image
+        run: docker build -t voidkey-broker-server:test .
+        
+      - name: Run Docker container with CI config
+        run: |
+          docker run -d --name test-server \
+            -p 3000:3000 \
+            voidkey-broker-server:test \
+            node dist/main.js --config config/ci-test-config.yaml
+          
+      - name: Wait for container to be ready
+        run: |
+          echo "Waiting for container to be ready..."
+          for i in {1..30}; do
+            if curl -f -s http://localhost:3000/health --max-time 5 > /dev/null 2>&1; then
+              echo "Container is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Container failed to become ready within 30 seconds"
+              docker logs test-server
+              exit 1
+            fi
+            echo "Attempt $i/30: Container not ready yet, waiting 2 seconds..."
+            sleep 2
+          done
+          
+      - name: Test Docker container endpoints
+        run: |
+          # Test health endpoint
+          echo "Testing health endpoint..."
+          curl -f -s http://localhost:3000/health --max-time 10
+          
+          # Test IdP providers endpoint
+          echo "Testing IdP providers endpoint..."
+          PROVIDERS=$(curl -f -s http://localhost:3000/credentials/idp-providers --max-time 10)
+          echo "Available providers: $PROVIDERS"
+          
+          # Test hello-world endpoint (should work without complex OIDC setup)
+          echo "Testing hello-world provider credential minting..."
+          RESPONSE=$(curl -f -X POST http://localhost:3000/credentials/mint \
+            -H "Content-Type: application/json" \
+            -d '{"oidcToken": "hello-world-token", "idpName": "hello-world", "keys": ["TEST_KEY"]}' \
+            --max-time 15)
+          
+          echo "Credential minting response: $RESPONSE"
+          
+          # Verify response contains expected fields
+          if echo "$RESPONSE" | grep -q "TEST_KEY" && echo "$RESPONSE" | grep -q "HELLO_ACCESS_KEY"; then
+            echo "✅ Docker container test completed successfully!"
+          else
+            echo "❌ Response missing expected fields"
+            exit 1
+          fi
+            
+      - name: Show container logs on failure
+        if: failure()
+        run: |
+          echo "=== Container Logs ==="
+          docker logs test-server
+          
+      - name: Stop Docker container
+        if: always()
+        run: docker stop test-server || true
